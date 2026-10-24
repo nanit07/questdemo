@@ -96,25 +96,9 @@
   function draw(now) {
     ctx.clearRect(0, 0, W, H);
 
-    // Base tintada (da contraste con el mundo real) + vidrio
-    roundRect(8, 8, W - 16, H - 16, 96);
-    ctx.fillStyle = 'rgba(14, 20, 44, 0.42)';
-    ctx.fill();
-    const g = ctx.createLinearGradient(0, 0, W, H);
-    g.addColorStop(0, 'rgba(255,255,255,0.30)');
-    g.addColorStop(0.5, 'rgba(255,255,255,0.07)');
-    g.addColorStop(1, 'rgba(255,255,255,0.14)');
-    ctx.fillStyle = g;
-    ctx.fill();
-
-    // Borde con luz: brillante arriba a la izquierda, tenue abajo
-    const b = ctx.createLinearGradient(0, 0, W, H);
-    b.addColorStop(0, 'rgba(255,255,255,0.85)');
-    b.addColorStop(0.45, 'rgba(255,255,255,0.12)');
-    b.addColorStop(1, 'rgba(255,255,255,0.40)');
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = b;
-    ctx.stroke();
+    // Vidrio gris cálido estilo visionOS
+    rr(ctx, 8, 8, W - 16, H - 16, 110);
+    glass(ctx, W, H);
 
     // Hora
     let hh = now.getHours(), suffix = '';
@@ -130,8 +114,8 @@
     const timeW = [...text].reduce((a, c) => a + slot(c), 0);
 
     ctx.font = `300 96px ${FONT}`;
-    const secW = ctx.measureText('00').width;
-    const gap = 28;
+    const secW = showSec ? ctx.measureText('00').width : 0;
+    const gap = showSec ? 28 : 0;
     let x = (W - (timeW + gap + secW)) / 2;
     const base = 300;
 
@@ -150,7 +134,7 @@
     ctx.textAlign = 'left';
     ctx.fillStyle = 'rgba(255,255,255,0.62)';
     ctx.font = `300 96px ${FONT}`;
-    ctx.fillText(sec, x + gap, base);
+    if (showSec) ctx.fillText(sec, x + gap, base);
     if (!h24) {
       ctx.font = `500 44px ${FONT}`;
       ctx.fillText(suffix, x + gap, base - 150);
@@ -165,9 +149,11 @@
     ctx.fillText(d, W / 2, 390);
 
     // Pista de la barra de segundos
-    roundRect(96, 447, W - 192, 6, 3);
-    ctx.fillStyle = 'rgba(255,255,255,0.16)';
-    ctx.fill();
+    if (showSec) {
+      roundRect(96, 447, W - 192, 6, 3);
+      ctx.fillStyle = 'rgba(255,255,255,0.16)';
+      ctx.fill();
+    }
 
     texture.needsUpdate = true;
   }
@@ -195,35 +181,130 @@
   bar.position.set((96 - W / 2) * K, (H / 2 - 450) * K, 0.002);
   group.add(bar);
 
-  /* ---------- Interacción ---------- */
+  /* ---------- Ornamento lateral, barra de agarre e interacción ---------- */
+  let showSec = store.get('clockxr.sec', '1') === '1';
+  let hover = '', drag = null;
+
+  function rr(g, x, y, w, h, r) {
+    g.beginPath();
+    g.moveTo(x + r, y);
+    g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r);
+    g.closePath();
+  }
+  function glass(g, w, h) {            // rellena y bordea el trazado actual
+    g.fillStyle = 'rgba(92,86,84,0.52)'; g.fill();
+    const a = g.createLinearGradient(0, 0, w, h);
+    a.addColorStop(0, 'rgba(255,255,255,.26)'); a.addColorStop(.55, 'rgba(255,255,255,.04)'); a.addColorStop(1, 'rgba(255,255,255,.10)');
+    g.fillStyle = a; g.fill();
+    const b = g.createLinearGradient(0, 0, w, h);
+    b.addColorStop(0, 'rgba(255,255,255,.8)'); b.addColorStop(.5, 'rgba(255,255,255,.14)'); b.addColorStop(1, 'rgba(255,255,255,.4)');
+    g.lineWidth = 2.5; g.strokeStyle = b; g.stroke();
+  }
+  function mk(w, h, cw, ch, x, y, z) {
+    const c = document.createElement('canvas'); c.width = cw; c.height = ch;
+    const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; t.anisotropy = 8;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false }));
+    m.position.set(x, y, z); group.add(m);
+    return { g: c.getContext('2d'), t, m };
+  }
+  const orn = mk(0.08, 0.2, 160, 400, -0.44, 0, 0.012);
+  const grab = mk(0.448, 0.056, 512, 64, 0, -0.222, 0.004);
+
+  function drawOrn() {
+    const g = orn.g; g.clearRect(0, 0, 160, 400);
+    rr(g, 10, 10, 140, 380, 70); glass(g, 160, 400);
+    for (let i = 0; i < 3; i++) {
+      const cy = 88 + 112 * i;
+      if (hover === 'o' + i) { g.beginPath(); g.arc(80, cy, 50, 0, 7); g.fillStyle = 'rgba(255,255,255,.28)'; g.fill(); }
+      g.fillStyle = g.strokeStyle = 'rgba(255,255,255,.95)'; g.lineWidth = 5; g.textAlign = 'center';
+      if (i === 0) { g.font = `500 38px ${FONT}`; g.fillText(h24 ? '24h' : '12h', 80, cy + 13); }
+      else if (i === 1) {                                  // cronómetro: segundos
+        g.globalAlpha = showSec ? 1 : 0.4;
+        g.beginPath(); g.arc(80, cy + 4, 24, 0, 7); g.stroke();
+        g.fillRect(72, cy - 32, 16, 6);
+        g.beginPath(); g.moveTo(80, cy + 4); g.lineTo(80, cy - 12); g.stroke();
+        g.globalAlpha = 1;
+      } else {                                             // diana: recentrar
+        g.beginPath(); g.arc(80, cy, 8, 0, 7); g.fill();
+        g.beginPath(); g.arc(80, cy, 26, 0, 7); g.stroke();
+      }
+    }
+    orn.t.needsUpdate = true;
+  }
+  function drawGrab() {
+    const g = grab.g; g.clearRect(0, 0, 512, 64);
+    g.beginPath(); g.arc(40, 32, 18, 0, 7);
+    g.fillStyle = hover === 'dot' ? 'rgba(255,255,255,.85)' : 'rgba(255,255,255,.45)'; g.fill();
+    rr(g, 96, 20, 368, 24, 12);
+    g.fillStyle = hover === 'grab' ? 'rgba(255,255,255,.85)' : 'rgba(255,255,255,.45)'; g.fill();
+    grab.t.needsUpdate = true;
+  }
+
   const raycaster = new THREE.Raycaster();
-  const tmp = new THREE.Matrix4();
+  const tmp = new THREE.Matrix4(), ro = new THREE.Vector3(), rd = new THREE.Vector3();
 
-  function toggleFormat() {
-    h24 = !h24;
-    store.set('clockxr.h24', h24 ? '1' : '0');
-    lastSecond = -1;
+  function refresh() { lastSecond = -1; bar.visible = showSec; drawOrn(); }
+  function toggleFormat() { h24 = !h24; store.set('clockxr.h24', h24 ? '1' : '0'); refresh(); }
+
+  function aim(c) {
+    tmp.identity().extractRotation(c.matrixWorld);
+    ro.setFromMatrixPosition(c.matrixWorld);
+    rd.set(0, 0, -1).applyMatrix4(tmp);
+  }
+  function pick(c) {
+    aim(c); raycaster.set(ro, rd);
+    const h = raycaster.intersectObjects([grab.m, orn.m, panel])[0];
+    if (!h) return null;
+    let id = 'panel';
+    if (h.object === orn.m) { const y = (1 - h.uv.y) * 400; id = 'o' + (y < 144 ? 0 : y < 256 ? 1 : 2); }
+    else if (h.object === grab.m) id = h.uv.x < 0.16 ? 'dot' : 'grab';
+    return { id, point: h.point };
   }
 
-  function pointsAtPanel(controller) {
-    tmp.identity().extractRotation(controller.matrixWorld);
-    raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
-    raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tmp);
-    return raycaster.intersectObject(panel).length > 0;
-  }
-
-  for (let i = 0; i < 2; i++) {
-    const c = renderer.xr.getController(i);
-    const ray = new THREE.Line(
+  const ctrls = [0, 1].map(i => renderer.xr.getController(i));
+  const dots = ctrls.map(() => {
+    const d = new THREE.Mesh(new THREE.CircleGeometry(0.008, 24), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthTest: false }));
+    d.renderOrder = 10; d.visible = false; scene.add(d); return d;
+  });
+  ctrls.forEach(c => {
+    c.add(new THREE.Line(
       new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1.5)]),
-      new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45 })
-    );
-    c.add(ray);
-    c.addEventListener('selectstart', () => { if (pointsAtPanel(c)) toggleFormat(); });
-    c.addEventListener('squeezestart', () => { if (pointsAtPanel(c)) c.attach(group); });
-    c.addEventListener('squeezeend', () => { if (group.parent === c) scene.attach(group); });
+      new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.22 })
+    ));
+    c.addEventListener('connected', e => { c.userData.gp = e.data.gamepad; });
+    c.addEventListener('selectstart', () => {
+      const h = pick(c); if (!h) return;
+      if (h.id === 'panel' || h.id === 'o0') toggleFormat();
+      else if (h.id === 'o1') { showSec = !showSec; store.set('clockxr.sec', showSec ? '1' : '0'); refresh(); }
+      else if (h.id === 'o2') { placed = false; frames = 999; }
+      else if (h.id === 'dot') { if (session) session.end(); }
+      else if (h.id === 'grab') drag = { c, dist: h.point.distanceTo(ro), off: group.position.clone().sub(h.point) };
+    });
+    c.addEventListener('selectend', () => { if (drag && drag.c === c) drag = null; });
     scene.add(c);
+  });
+
+  // Hover, reticulas y arrastre (se llama cada fotograma en AR)
+  function updateXR() {
+    let hv = '';
+    ctrls.forEach((c, i) => {
+      const h = pick(c);
+      dots[i].visible = !!h;
+      if (h) { dots[i].position.copy(h.point); dots[i].lookAt(ro); if (!hv || h.id !== 'panel') hv = h.id; }
+    });
+    if (drag) {
+      const c = drag.c, gp = c.userData.gp;
+      aim(c);
+      if (gp && gp.axes[3]) drag.dist = THREE.MathUtils.clamp(drag.dist - gp.axes[3] * 0.03, 0.5, 3);  // palanca: acercar/alejar
+      group.position.copy(ro).addScaledVector(rd, drag.dist).add(drag.off);
+      renderer.xr.getCamera(camera).getWorldPosition(v);
+      group.lookAt(v.x, group.position.y, v.z);
+      hv = 'grab';
+    }
+    if (hv !== hover) { hover = hv; drawOrn(); drawGrab(); }
   }
+  drawOrn(); drawGrab(); bar.visible = showSec;
 
   // Vista previa en pantalla: clic sobre el panel
   renderer.domElement.addEventListener('pointerdown', e => {
@@ -320,6 +401,7 @@
       bar.scale.x = Math.max(0.001, (s * 1000 + now.getMilliseconds()) / 60000);
 
       if (renderer.xr.isPresenting && !placed) { frames++; placeInFront(); }
+      if (renderer.xr.isPresenting) updateXR();
       renderer.render(scene, camera);
     } catch (err) {
       lastError = err && err.message ? err.message : String(err);
