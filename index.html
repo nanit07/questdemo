@@ -187,14 +187,13 @@
 
   /* ---------- Ornamento lateral, barra de agarre e interacción ---------- */
   let showSec = store.get('clockxr.sec', '1') === '1';
-  let hover = '', drag = null, rz = null;
+  let hover = '', hoverO = null, drag = null, rz = null;
   const nv = new THREE.Vector3(), pt = new THREE.Vector3(), pl = new THREE.Plane();
-  function planePt(c) {                // punto donde el rayo corta el plano del reloj
+  function planePt(c, tg) {          // punto donde el rayo corta el plano del panel tg
     aim(c); raycaster.set(ro, rd);
-    group.getWorldDirection(nv); pl.setFromNormalAndCoplanarPoint(nv, group.position);
+    tg.getWorldDirection(nv); pl.setFromNormalAndCoplanarPoint(nv, tg.position);
     return raycaster.ray.intersectPlane(pl, pt);
   }
-
   function rr(g, x, y, w, h, r) {
     g.beginPath();
     g.moveTo(x + r, y);
@@ -202,11 +201,14 @@
     g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r);
     g.closePath();
   }
-  function glass(g, w, h) {            // rellena el trazado actual: gris oscuro translúcido con degradado a negro
-    g.fillStyle = 'rgba(62,60,59,0.64)'; g.fill();
-    const a = g.createLinearGradient(0, 0, w * 0.4, h);
-    a.addColorStop(0, 'rgba(255,255,255,.07)'); a.addColorStop(1, 'rgba(0,0,0,.26)');
+  function glass(g, w, h) {            // vidrio claro: tinte suave, brillo arriba a la izquierda, borde fino luminoso
+    g.fillStyle = 'rgba(40,52,62,0.30)'; g.fill();
+    const a = g.createLinearGradient(0, 0, w * 0.6, h);
+    a.addColorStop(0, 'rgba(255,255,255,.24)'); a.addColorStop(.6, 'rgba(255,255,255,.05)'); a.addColorStop(1, 'rgba(255,255,255,.12)');
     g.fillStyle = a; g.fill();
+    const b = g.createLinearGradient(0, 0, w, h);
+    b.addColorStop(0, 'rgba(255,255,255,.85)'); b.addColorStop(.5, 'rgba(255,255,255,.22)'); b.addColorStop(1, 'rgba(255,255,255,.5)');
+    g.lineWidth = 2; g.strokeStyle = b; g.stroke();
   }
   function mk(w, h, cw, ch, x, y, z, parent) {
     const c = document.createElement('canvas'); c.width = cw * S; c.height = ch * S;
@@ -221,7 +223,7 @@
   const corners = [[-1, 1], [1, 1], [-1, -1], [1, -1]].map(([sx, sy], i) => {
     const m = new THREE.Mesh(new THREE.RingGeometry(0.013, 0.02, 32),
       new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false }));
-    m.position.set(sx * 0.387, sy * 0.187, 0.006); m.userData.id = 'c' + i; group.add(m); return m;
+    m.position.set(sx * 0.387, sy * 0.187, 0.006); m.userData.id = 'c' + i; m.userData.own = { grp: group }; group.add(m); return m;
   });
 
   function drawOrn() {
@@ -273,7 +275,7 @@
     if (h.object === orn.m) { const y = (1 - h.uv.y) * 400; id = 'o' + (y < 144 ? 0 : y < 256 ? 1 : 2); }
     else if (h.object === grab.m) id = h.uv.x < 0.16 ? 'dot' : 'grab';
     else if (h.object.userData.id) id = h.object.userData.id;
-    return { id, point: h.point, uv: h.uv, own: h.object.userData.own };
+    return { id, point: h.point, uv: h.uv, own: h.object.userData.own, obj: h.object };
   }
 
   const ctrls = [0, 1].map(i => renderer.xr.getController(i));
@@ -293,40 +295,40 @@
       else if (h.id === 'o1') { showSec = !showSec; store.set('clockxr.sec', showSec ? '1' : '0'); refresh(); }
       else if (h.id === 'o2') { placed = false; frames = 999; }
       else if (h.id === 'dot') { if (session) session.end(); }
-      else if (h.id === 'wgrab') drag = { c, dist: h.point.distanceTo(ro), off: h.own.grp.position.clone().sub(h.point), tg: h.own.grp };
+      else if (h.id === 'wgrab') { drag = { c, dist: h.point.distanceTo(ro), off: h.own.grp.position.clone().sub(h.point), tg: h.own.grp }; h.own.docked = false; }
       else if (h.id === 'wface') wTap(h);
-      else if (h.id[0] === 'c') { if (planePt(c)) rz = { c, i: +h.id[1], d0: pt.distanceTo(group.position), s0: group.scale.x }; }
+      else if (h.id[0] === 'c') { const tg = h.own.grp; if (planePt(c, tg)) rz = { c, tg, m: h.obj, d0: pt.distanceTo(tg.position), s0: tg.scale.x }; }
       else if (h.id === 'grab') drag = { c, dist: h.point.distanceTo(ro), off: group.position.clone().sub(h.point), tg: group };
     });
-    c.addEventListener('selectend', () => { if (drag && drag.c === c) drag = null; if (rz && rz.c === c) rz = null; });
+    c.addEventListener('selectend', () => { if (drag && drag.c === c) { snapDock(drag.tg); drag = null; } if (rz && rz.c === c) rz = null; });
     scene.add(c);
   });
 
   // Hover, reticulas y arrastre (se llama cada fotograma en AR)
   function updateXR() {
-    let hv = '';
+    let hv = '', ho = null;
     ctrls.forEach((c, i) => {
       const h = pick(c);
       dots[i].visible = !!h;
-      if (h) { dots[i].position.copy(h.point); dots[i].lookAt(ro); if (!hv || h.id !== 'panel') hv = h.id; }
+      if (h) { dots[i].position.copy(h.point); dots[i].lookAt(ro); if (!hv || h.id !== 'panel') { hv = h.id; ho = h.obj; } }
     });
     if (drag) {
-      const c = drag.c, gp = c.userData.gp;
+      const c = drag.c, gp = c.userData.gp, tg = drag.tg;
       aim(c);
-      if (gp && gp.axes[3]) drag.dist = THREE.MathUtils.clamp(drag.dist - gp.axes[3] * 0.03, 0.5, 3);  // palanca: acercar/alejar
-      const tg = drag.tg;
+      if (gp && gp.axes[3]) drag.dist = THREE.MathUtils.clamp(drag.dist - gp.axes[3] * 0.03, 0.5, 3);
       tg.position.copy(ro).addScaledVector(rd, drag.dist).add(drag.off);
       renderer.xr.getCamera(camera).getWorldPosition(v);
       tg.lookAt(v.x, tg.position.y, v.z);
+      if (tg === group) layout();
       hv = 'grab';
     }
-    if (rz && planePt(rz.c)) {
-      group.scale.setScalar(THREE.MathUtils.clamp(rz.s0 * pt.distanceTo(group.position) / rz.d0, 0.5, 3));
-      hv = 'c' + rz.i;
+    if (rz && planePt(rz.c, rz.tg)) {
+      rz.tg.scale.setScalar(THREE.MathUtils.clamp(rz.s0 * pt.distanceTo(rz.tg.position) / rz.d0, 0.4, 3));
+      layout(); hv = 'c'; ho = rz.m;
     }
-    if (hv !== hover) {
-      hover = hv; drawOrn(); drawGrab();
-      corners.forEach((m, i) => { m.material.opacity = hv === 'c' + i ? 0.75 : 0; });
+    if (hv !== hover || ho !== hoverO) {
+      hover = hv; hoverO = ho; drawOrn(); drawGrab();
+      corners.forEach(m => { m.material.opacity = m === ho ? 0.75 : 0; });
     }
   }
   drawOrn(); drawGrab(); bar.visible = showSec;
@@ -336,30 +338,41 @@
   const widgets = [], wmeshes = [], lv = new THREE.Vector3();
   let calOff = 0, wx = null, wxErr = false;
 
-  function widget(ox, oy, draw) {
+  function widget(side, hw, hh, cw, ch, rad, draw) {
     const grp = new THREE.Group(); scene.add(grp);
-    const w = { grp, ox, oy, draw, face: mk(0.4, 0.4, 400, 400, 0, 0, 0, grp), bar: mk(0.28, 0.04, 320, 46, 0, -0.262, 0.002, grp) };
-    rr(w.bar.g, 60, 14, 200, 18, 9); w.bar.g.fillStyle = 'rgba(255,255,255,.45)'; w.bar.g.fill(); w.bar.t.needsUpdate = true;
+    const w = { grp, side, hw, hh, cw, ch, rad, draw, docked: true,
+      face: mk(hw * 2, hh * 2, cw, ch, 0, 0, 0, grp), bar: mk(0.2, 0.03, 320, 48, 0, -(hh + 0.045), 0.002, grp) };
+    rr(w.bar.g, 80, 15, 160, 18, 9); w.bar.g.fillStyle = 'rgba(255,255,255,.5)'; w.bar.g.fill(); w.bar.t.needsUpdate = true;
     w.face.m.userData = { id: 'wface', own: w }; w.bar.m.userData = { id: 'wgrab', own: w };
+    [[-1, 1], [1, 1], [-1, -1], [1, -1]].forEach(([sx, sy], i) => {
+      const m = new THREE.Mesh(new THREE.RingGeometry(0.01, 0.015, 32), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false }));
+      m.position.set(sx * (hw + 0.004), sy * (hh + 0.004), 0.006); m.userData = { id: 'c' + i, own: w }; grp.add(m); corners.push(m);
+    });
     wmeshes.push(w.face.m, w.bar.m); widgets.push(w); return w;
   }
   function wAll() {
     widgets.forEach(w => {
-      const g = w.face.g; g.clearRect(0, 0, 400, 400);
-      rr(g, 6, 6, 388, 388, 64); glass(g, 400, 400);
+      const g = w.face.g; g.clearRect(0, 0, w.cw, w.ch);
+      rr(g, 6, 6, w.cw - 12, w.ch - 12, w.rad); glass(g, w.cw, w.ch);
       g.save(); w.draw(g); g.restore(); w.face.t.needsUpdate = true;
     });
   }
-  function layout() {                  // coloca los widgets a los lados del reloj
+  function slot(w, out) {              // hueco del widget en la barra, pegado al reloj (el ornamento ocupa el lado izquierdo)
+    const cs = group.scale.x;
+    const off = w.side * (0.4 * cs + (w.side < 0 ? 0.12 * cs : 0.03) + w.hw * w.grp.scale.x);
+    return group.localToWorld(out.set(off / cs, 0, 0));
+  }
+  function layout() {                  // los widgets acoplados siguen al reloj
     group.updateMatrixWorld(true);
-    widgets.forEach(w => {
-      w.grp.position.copy(group.localToWorld(lv.set(w.ox, w.oy, 0)));
-      w.grp.quaternion.copy(group.quaternion); w.grp.scale.copy(group.scale);
-    });
+    widgets.forEach(w => { if (w.docked) { w.grp.position.copy(slot(w, lv)); w.grp.quaternion.copy(group.quaternion); } });
+  }
+  function snapDock(tg) {              // al soltar cerca de su hueco, se acopla
+    const w = widgets.find(x => x.grp === tg);
+    if (w) { w.docked = slot(w, new THREE.Vector3()).distanceTo(tg.position) < 0.3; layout(); }
   }
   const cap = t => t.charAt(0).toUpperCase() + t.slice(1);
 
-  const cal = widget(-0.72, 0, g => {
+  const cal = widget(-1, 0.13, 0.13, 400, 400, 56, g => {
     const t = new Date(), d = new Date(t.getFullYear(), t.getMonth() + calOff, 1);
     g.fillStyle = '#fff'; g.textAlign = 'left'; g.font = `500 27px ${FONT}`;
     g.fillText(cap(new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(d)), 32, 62);
@@ -403,33 +416,38 @@
   const LBL = { sun: 'Despejado', part: 'Algo nublado', cloud: 'Nublado', rain: 'Lluvia', snow: 'Nieve', storm: 'Tormenta' };
   const kindOf = c => c === 0 ? 'sun' : c <= 2 ? 'part' : c <= 48 ? 'cloud' : (c <= 67 || (c >= 80 && c <= 82)) ? 'rain' : (c <= 77 || c === 85 || c === 86) ? 'snow' : c >= 95 ? 'storm' : 'cloud';
 
-  const wea = widget(0.68, 0, g => {
-    g.textAlign = 'left'; g.fillStyle = '#fff'; g.font = `500 26px ${FONT}`; g.fillText(CITY, 32, 58);
-    if (!wx) { g.fillStyle = 'rgba(255,255,255,.6)'; g.font = `400 22px ${FONT}`; g.fillText(wxErr ? 'Sin conexión' : 'Cargando…', 32, 100); return; }
-    g.font = `200 120px ${FONT}`; g.fillText(Math.round(wx.t) + '°', 28, 180);
-    icon(g, wx.k, 318, 120, 76);
-    g.font = `400 21px ${FONT}`; g.fillStyle = 'rgba(255,255,255,.7)';
-    g.fillText(`${LBL[wx.k]} · ${Math.round(wx.max)}° / ${Math.round(wx.min)}°`, 32, 222);
-    g.textAlign = 'center';
-    wx.days.forEach((d, i) => {
-      const cx = 77 + 123 * i;
-      g.fillStyle = 'rgba(255,255,255,.6)'; g.font = `500 18px ${FONT}`; g.fillText(d.n, cx, 270);
-      icon(g, d.k, cx, 312, 40);
-      g.fillStyle = 'rgba(255,255,255,.92)'; g.font = `400 20px ${FONT}`; g.fillText(`${Math.round(d.max)}° ${Math.round(d.min)}°`, cx, 372);
+  const wea = widget(1, 0.18, 0.09, 480, 240, 52, g => {
+    const now = new Date();
+    g.textAlign = 'left'; g.fillStyle = '#fff'; g.font = `500 21px ${FONT}`;
+    g.fillText(CITY + ' · ' + cap(new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'short' }).format(now)), 28, 46);
+    if (!wx) { g.fillStyle = 'rgba(255,255,255,.7)'; g.font = `400 24px ${FONT}`; g.fillText(wxErr ? 'Sin conexión' : 'Cargando…', 28, 120); }
+    else {
+      const num = String(Math.round(wx.t));
+      g.font = `500 100px ${FONT}`; const tw = g.measureText(num + '°').width;
+      g.fillText(num + '°', 24, 142);
+      g.font = `200 50px ${FONT}`; g.fillText('C', 28 + tw, 142);
+      icon(g, wx.k, 350, 56, 56);
+      g.font = `500 19px ${FONT}`; g.fillText('Sensación ' + Math.round(wx.f) + '°', 290, 110);
+      [['↑', wx.max, 290], ['↓', wx.min, 378]].forEach(([a, n, x]) => {
+        rr(g, x, 124, 80, 36, 14); g.fillStyle = 'rgba(0,0,0,.24)'; g.fill();
+        g.fillStyle = '#fff'; g.fillText(a + ' ' + Math.round(n) + '°', x + 14, 149);
+      });
+    }
+    const today = (now.getDay() + 6) % 7;
+    g.textAlign = 'center'; g.font = `500 16px ${FONT}`;
+    ['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM'].forEach((n, i) => {
+      const cx = 24 + 61.7 * (i + 0.5);
+      if (i === today) { rr(g, cx - 27, 190, 54, 34, 16); g.fillStyle = 'rgba(255,255,255,.95)'; g.fill(); g.fillStyle = '#1d2a33'; }
+      else g.fillStyle = 'rgba(255,255,255,.88)';
+      g.fillText(n, cx, 213);
     });
   });
 
   async function loadWeather() {
     try {
-      const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&current=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=4`);
+      const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&current=temperature_2m,apparent_temperature,weather_code&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1`);
       const j = await r.json(), c = j.current, d = j.daily;
-      wx = {
-        t: c.temperature_2m, k: kindOf(c.weather_code), max: d.temperature_2m_max[0], min: d.temperature_2m_min[0],
-        days: [1, 2, 3].map(i => ({
-          n: cap(new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(new Date(d.time[i] + 'T12:00')).replace('.', '')),
-          k: kindOf(d.weather_code[i]), max: d.temperature_2m_max[i], min: d.temperature_2m_min[i]
-        }))
-      };
+      wx = { t: c.temperature_2m, f: c.apparent_temperature, k: kindOf(c.weather_code), max: d.temperature_2m_max[0], min: d.temperature_2m_min[0] };
       wxErr = false;
     } catch (e) { wxErr = true; }
     wAll();
@@ -471,6 +489,7 @@
     scene.attach(group);
     group.position.set(v.x + dir.x * 1.2, v.y - 0.05, v.z + dir.z * 1.2);
     group.lookAt(v.x, group.position.y, v.z);
+    widgets.forEach(w => { w.docked = true; });
     layout();
     placed = true;
   }
@@ -480,6 +499,7 @@
     group.position.copy(HOME);
     group.rotation.set(0, 0, 0);
     group.scale.setScalar(1);
+    widgets.forEach(w => { w.docked = true; w.grp.scale.setScalar(1); });
     layout();
   }
 
@@ -501,6 +521,7 @@
       await renderer.xr.setSession(s);
       session = s;
       placed = false; frames = 0;
+      group.scale.setScalar(0.75);
       enterBtn.textContent = 'Salir de AR';
       log('3/3 Sesión AR activa.');
       s.addEventListener('end', () => {
