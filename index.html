@@ -208,11 +208,11 @@
     a.addColorStop(0, 'rgba(255,255,255,.07)'); a.addColorStop(1, 'rgba(0,0,0,.26)');
     g.fillStyle = a; g.fill();
   }
-  function mk(w, h, cw, ch, x, y, z) {
+  function mk(w, h, cw, ch, x, y, z, parent) {
     const c = document.createElement('canvas'); c.width = cw * S; c.height = ch * S;
     const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; t.anisotropy = 8;
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false }));
-    m.position.set(x, y, z); group.add(m);
+    m.position.set(x, y, z); (parent || group).add(m);
     const g = c.getContext('2d'); g.scale(S, S);
     return { g, t, m };
   }
@@ -267,13 +267,13 @@
   }
   function pick(c) {
     aim(c); raycaster.set(ro, rd);
-    const h = raycaster.intersectObjects([grab.m, orn.m, panel, ...corners])[0];
+    const h = raycaster.intersectObjects([grab.m, orn.m, panel, ...corners, ...wmeshes])[0];
     if (!h) return null;
     let id = 'panel';
     if (h.object === orn.m) { const y = (1 - h.uv.y) * 400; id = 'o' + (y < 144 ? 0 : y < 256 ? 1 : 2); }
     else if (h.object === grab.m) id = h.uv.x < 0.16 ? 'dot' : 'grab';
     else if (h.object.userData.id) id = h.object.userData.id;
-    return { id, point: h.point };
+    return { id, point: h.point, uv: h.uv, own: h.object.userData.own };
   }
 
   const ctrls = [0, 1].map(i => renderer.xr.getController(i));
@@ -293,8 +293,10 @@
       else if (h.id === 'o1') { showSec = !showSec; store.set('clockxr.sec', showSec ? '1' : '0'); refresh(); }
       else if (h.id === 'o2') { placed = false; frames = 999; }
       else if (h.id === 'dot') { if (session) session.end(); }
+      else if (h.id === 'wgrab') drag = { c, dist: h.point.distanceTo(ro), off: h.own.grp.position.clone().sub(h.point), tg: h.own.grp };
+      else if (h.id === 'wface') wTap(h);
       else if (h.id[0] === 'c') { if (planePt(c)) rz = { c, i: +h.id[1], d0: pt.distanceTo(group.position), s0: group.scale.x }; }
-      else if (h.id === 'grab') drag = { c, dist: h.point.distanceTo(ro), off: group.position.clone().sub(h.point) };
+      else if (h.id === 'grab') drag = { c, dist: h.point.distanceTo(ro), off: group.position.clone().sub(h.point), tg: group };
     });
     c.addEventListener('selectend', () => { if (drag && drag.c === c) drag = null; if (rz && rz.c === c) rz = null; });
     scene.add(c);
@@ -312,9 +314,10 @@
       const c = drag.c, gp = c.userData.gp;
       aim(c);
       if (gp && gp.axes[3]) drag.dist = THREE.MathUtils.clamp(drag.dist - gp.axes[3] * 0.03, 0.5, 3);  // palanca: acercar/alejar
-      group.position.copy(ro).addScaledVector(rd, drag.dist).add(drag.off);
+      const tg = drag.tg;
+      tg.position.copy(ro).addScaledVector(rd, drag.dist).add(drag.off);
       renderer.xr.getCamera(camera).getWorldPosition(v);
-      group.lookAt(v.x, group.position.y, v.z);
+      tg.lookAt(v.x, tg.position.y, v.z);
       hv = 'grab';
     }
     if (rz && planePt(rz.c)) {
@@ -327,9 +330,122 @@
     }
   }
   drawOrn(); drawGrab(); bar.visible = showSec;
+
+  /* ---------- Widgets: calendario y clima ---------- */
+  const LAT = -31.73, LON = -60.52, CITY = 'Paraná';   // cambia estas coordenadas por las tuyas
+  const widgets = [], wmeshes = [], lv = new THREE.Vector3();
+  let calOff = 0, wx = null, wxErr = false;
+
+  function widget(ox, oy, draw) {
+    const grp = new THREE.Group(); scene.add(grp);
+    const w = { grp, ox, oy, draw, face: mk(0.4, 0.4, 400, 400, 0, 0, 0, grp), bar: mk(0.28, 0.04, 320, 46, 0, -0.262, 0.002, grp) };
+    rr(w.bar.g, 60, 14, 200, 18, 9); w.bar.g.fillStyle = 'rgba(255,255,255,.45)'; w.bar.g.fill(); w.bar.t.needsUpdate = true;
+    w.face.m.userData = { id: 'wface', own: w }; w.bar.m.userData = { id: 'wgrab', own: w };
+    wmeshes.push(w.face.m, w.bar.m); widgets.push(w); return w;
+  }
+  function wAll() {
+    widgets.forEach(w => {
+      const g = w.face.g; g.clearRect(0, 0, 400, 400);
+      rr(g, 6, 6, 388, 388, 64); glass(g, 400, 400);
+      g.save(); w.draw(g); g.restore(); w.face.t.needsUpdate = true;
+    });
+  }
+  function layout() {                  // coloca los widgets a los lados del reloj
+    group.updateMatrixWorld(true);
+    widgets.forEach(w => {
+      w.grp.position.copy(group.localToWorld(lv.set(w.ox, w.oy, 0)));
+      w.grp.quaternion.copy(group.quaternion); w.grp.scale.copy(group.scale);
+    });
+  }
+  const cap = t => t.charAt(0).toUpperCase() + t.slice(1);
+
+  const cal = widget(-0.72, 0, g => {
+    const t = new Date(), d = new Date(t.getFullYear(), t.getMonth() + calOff, 1);
+    g.fillStyle = '#fff'; g.textAlign = 'left'; g.font = `500 27px ${FONT}`;
+    g.fillText(cap(new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(d)), 32, 62);
+    g.textAlign = 'center'; g.fillStyle = 'rgba(255,255,255,.7)'; g.font = `400 36px ${FONT}`;
+    g.fillText('‹', 296, 62); g.fillText('›', 352, 62);
+    g.font = `500 17px ${FONT}`; g.fillStyle = 'rgba(255,255,255,.5)';
+    ['L', 'M', 'M', 'J', 'V', 'S', 'D'].forEach((n, i) => g.fillText(n, 56 + 48 * i, 112));
+    const start = (d.getDay() + 6) % 7;
+    g.font = `400 22px ${FONT}`;
+    for (let i = 0; i < 42; i++) {
+      const day = new Date(d.getFullYear(), d.getMonth(), 1 - start + i);
+      const cx = 56 + 48 * (i % 7), cy = 150 + 40 * Math.floor(i / 7);
+      if (day.toDateString() === t.toDateString()) {
+        g.beginPath(); g.arc(cx, cy - 7, 18, 0, 7); g.fillStyle = '#fff'; g.fill(); g.fillStyle = '#222';
+      } else g.fillStyle = day.getMonth() === d.getMonth() ? 'rgba(255,255,255,.92)' : 'rgba(255,255,255,.28)';
+      g.fillText(String(day.getDate()), cx, cy);
+    }
+  });
+
+  function icon(g, k, x, y, s) {
+    const circ = (cx, cy, r) => { g.beginPath(); g.arc(cx, cy, r, 0, 7); g.fill(); };
+    g.lineCap = 'round';
+    if (k === 'sun' || k === 'part') {
+      const sx = k === 'part' ? x - s * .2 : x, sy = k === 'part' ? y - s * .2 : y;
+      g.fillStyle = g.strokeStyle = '#ffd24a'; g.lineWidth = s * .06; circ(sx, sy, s * .22);
+      for (let i = 0; i < 8; i++) {
+        const a = i * Math.PI / 4; g.beginPath();
+        g.moveTo(sx + Math.cos(a) * s * .32, sy + Math.sin(a) * s * .32); g.lineTo(sx + Math.cos(a) * s * .42, sy + Math.sin(a) * s * .42); g.stroke();
+      }
+    }
+    if (k === 'sun') return;
+    const cy = k === 'part' ? y + s * .12 : y - s * .05, py = cy + s * .3;
+    g.fillStyle = 'rgba(255,255,255,.93)';
+    circ(x - s * .2, cy + s * .08, s * .17); circ(x, cy - s * .05, s * .22); circ(x + s * .22, cy + s * .08, s * .15);
+    g.fillRect(x - s * .2, cy + s * .08, s * .42, s * .15);
+    g.strokeStyle = k === 'storm' ? '#ffd24a' : '#7cc4ff'; g.lineWidth = s * .05;
+    if (k === 'rain') [-.15, 0, .15].forEach(o => { g.beginPath(); g.moveTo(x + s * o, py); g.lineTo(x + s * (o - .05), py + s * .14); g.stroke(); });
+    if (k === 'snow') { g.fillStyle = '#fff'; [-.15, 0, .15].forEach(o => circ(x + s * o, py + s * .07, s * .035)); }
+    if (k === 'storm') { g.beginPath(); g.moveTo(x + s * .04, py - s * .02); g.lineTo(x - s * .06, py + s * .08); g.lineTo(x + s * .04, py + s * .08); g.lineTo(x - s * .04, py + s * .2); g.stroke(); }
+  }
+  const LBL = { sun: 'Despejado', part: 'Algo nublado', cloud: 'Nublado', rain: 'Lluvia', snow: 'Nieve', storm: 'Tormenta' };
+  const kindOf = c => c === 0 ? 'sun' : c <= 2 ? 'part' : c <= 48 ? 'cloud' : (c <= 67 || (c >= 80 && c <= 82)) ? 'rain' : (c <= 77 || c === 85 || c === 86) ? 'snow' : c >= 95 ? 'storm' : 'cloud';
+
+  const wea = widget(0.68, 0, g => {
+    g.textAlign = 'left'; g.fillStyle = '#fff'; g.font = `500 26px ${FONT}`; g.fillText(CITY, 32, 58);
+    if (!wx) { g.fillStyle = 'rgba(255,255,255,.6)'; g.font = `400 22px ${FONT}`; g.fillText(wxErr ? 'Sin conexión' : 'Cargando…', 32, 100); return; }
+    g.font = `200 120px ${FONT}`; g.fillText(Math.round(wx.t) + '°', 28, 180);
+    icon(g, wx.k, 318, 120, 76);
+    g.font = `400 21px ${FONT}`; g.fillStyle = 'rgba(255,255,255,.7)';
+    g.fillText(`${LBL[wx.k]} · ${Math.round(wx.max)}° / ${Math.round(wx.min)}°`, 32, 222);
+    g.textAlign = 'center';
+    wx.days.forEach((d, i) => {
+      const cx = 77 + 123 * i;
+      g.fillStyle = 'rgba(255,255,255,.6)'; g.font = `500 18px ${FONT}`; g.fillText(d.n, cx, 270);
+      icon(g, d.k, cx, 312, 40);
+      g.fillStyle = 'rgba(255,255,255,.92)'; g.font = `400 20px ${FONT}`; g.fillText(`${Math.round(d.max)}° ${Math.round(d.min)}°`, cx, 372);
+    });
+  });
+
+  async function loadWeather() {
+    try {
+      const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&current=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=4`);
+      const j = await r.json(), c = j.current, d = j.daily;
+      wx = {
+        t: c.temperature_2m, k: kindOf(c.weather_code), max: d.temperature_2m_max[0], min: d.temperature_2m_min[0],
+        days: [1, 2, 3].map(i => ({
+          n: cap(new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(new Date(d.time[i] + 'T12:00')).replace('.', '')),
+          k: kindOf(d.weather_code[i]), max: d.temperature_2m_max[i], min: d.temperature_2m_min[i]
+        }))
+      };
+      wxErr = false;
+    } catch (e) { wxErr = true; }
+    wAll();
+  }
+  function wTap(h) {                   // calendario: ‹ › cambian de mes, el título vuelve a hoy; clima: actualiza
+    if (h.own === cal) {
+      const x = h.uv.x * 400, y = (1 - h.uv.y) * 400;
+      if (y < 85) { calOff = x > 328 ? calOff + 1 : x > 268 ? calOff - 1 : 0; wAll(); }
+    } else loadWeather();
+  }
+  layout(); wAll(); loadWeather();
+  setInterval(loadWeather, 15 * 60 * 1000);
+  setInterval(wAll, 60 * 1000);
   if (document.fonts && document.fonts.load) {
     Promise.all(['200 100px Inter', '300 100px Inter', '400 40px Inter', '500 40px Inter'].map(f => document.fonts.load(f)))
-      .then(() => { lastSecond = -1; drawOrn(); drawGrab(); }).catch(() => {});
+      .then(() => { lastSecond = -1; drawOrn(); drawGrab(); wAll(); }).catch(() => {});
   }
 
   // Vista previa en pantalla: clic sobre el panel
@@ -355,6 +471,7 @@
     scene.attach(group);
     group.position.set(v.x + dir.x * 1.2, v.y - 0.05, v.z + dir.z * 1.2);
     group.lookAt(v.x, group.position.y, v.z);
+    layout();
     placed = true;
   }
 
@@ -362,6 +479,8 @@
     scene.attach(group);
     group.position.copy(HOME);
     group.rotation.set(0, 0, 0);
+    group.scale.setScalar(1);
+    layout();
   }
 
   function log(t) { msg.textContent = t; }
