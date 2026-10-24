@@ -257,22 +257,34 @@
     group.rotation.set(0, 0, 0);
   }
 
+  function log(t) { msg.textContent = t; }
+
   async function startAR() {
     if (session) { session.end(); return; }
+    log('1/3 Pidiendo sesión AR…');
+    let s;
     try {
-      const s = await navigator.xr.requestSession('immersive-ar', { optionalFeatures: ['local-floor'] });
+      try {
+        s = await navigator.xr.requestSession('immersive-ar', { optionalFeatures: ['local-floor'] });
+      } catch (e1) {
+        log('1/3 Reintentando sin opciones (' + (e1 && e1.message ? e1.message : e1) + ')…');
+        s = await navigator.xr.requestSession('immersive-ar');
+      }
+      log('2/3 Sesión concedida. Preparando el render…');
       renderer.xr.setReferenceSpaceType('local-floor');
       await renderer.xr.setSession(s);
       session = s;
       placed = false; frames = 0;
       enterBtn.textContent = 'Salir de AR';
+      log('3/3 Sesión AR activa.');
       s.addEventListener('end', () => {
         session = null;
         enterBtn.textContent = 'Entrar en AR';
         resetDesktop();
+        log('La sesión AR terminó.' + (lastError ? ' Último error: ' + lastError : ''));
       });
     } catch (err) {
-      msg.textContent = 'No se pudo iniciar la AR: ' + (err && err.message ? err.message : 'error desconocido');
+      log('Falló la AR: ' + (err && err.name ? err.name + ' – ' : '') + (err && err.message ? err.message : err));
     }
   }
 
@@ -292,14 +304,29 @@
 
   /* ---------- Bucle ---------- */
   let lastSecond = -1;
-  renderer.setAnimationLoop(() => {
-    const now = new Date();
-    const s = now.getSeconds();
-    if (s !== lastSecond) { lastSecond = s; draw(now); }
-    bar.scale.x = Math.max(0.001, (s * 1000 + now.getMilliseconds()) / 60000);
+  let lastError = '';
+  addEventListener('error', e => { lastError = e.message; log('Error: ' + e.message); });
+  addEventListener('unhandledrejection', e => {
+    const r = e.reason;
+    lastError = r && r.message ? r.message : String(r);
+    log('Error: ' + lastError);
+  });
 
-    if (renderer.xr.isPresenting && !placed) { frames++; placeInFront(); }
-    renderer.render(scene, camera);
+  renderer.setAnimationLoop(() => {
+    try {
+      const now = new Date();
+      const s = now.getSeconds();
+      if (s !== lastSecond) { lastSecond = s; draw(now); }
+      bar.scale.x = Math.max(0.001, (s * 1000 + now.getMilliseconds()) / 60000);
+
+      if (renderer.xr.isPresenting && !placed) { frames++; placeInFront(); }
+      renderer.render(scene, camera);
+    } catch (err) {
+      lastError = err && err.message ? err.message : String(err);
+      log('Error en el render: ' + lastError);
+      renderer.setAnimationLoop(null);
+      if (session) session.end();
+    }
   });
 
   addEventListener('resize', () => {
