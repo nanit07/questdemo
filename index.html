@@ -35,6 +35,7 @@
   button[hidden] { display: none; }
   #msg { font-size: .95rem; color: rgba(255,255,255,.7); line-height: 1.4; }
 </style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&display=swap">
 </head>
 <body>
 
@@ -49,7 +50,8 @@
   const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", Roboto, "Segoe UI", sans-serif';
   const W = 1024, H = 512;          // píxeles del lienzo
   const PW = 0.8, PH = 0.4;         // tamaño del panel en metros
-  const K = PW / W;                 // metros por píxel
+  const K = PW / W;
+  const S = 2;                      // factor de resolución de los lienzos                 // metros por píxel
 
   const store = {
     get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } },
@@ -67,6 +69,7 @@
   renderer.setClearAlpha(0);              // transparente: así se ve el passthrough
   renderer.outputEncoding = THREE.sRGBEncoding;
   renderer.xr.enabled = true;
+  renderer.xr.setFramebufferScaleFactor(1.5);   // más nitidez en el visor
   document.body.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
@@ -75,8 +78,9 @@
 
   /* ---------- Textura de cristal dibujada en canvas ---------- */
   const canvas = document.createElement('canvas');
-  canvas.width = W; canvas.height = H;
+  canvas.width = W * S; canvas.height = H * S;
   const ctx = canvas.getContext('2d');
+  ctx.scale(S, S);
   const texture = new THREE.CanvasTexture(canvas);
   texture.encoding = THREE.sRGBEncoding;
   texture.anisotropy = 8;
@@ -183,7 +187,13 @@
 
   /* ---------- Ornamento lateral, barra de agarre e interacción ---------- */
   let showSec = store.get('clockxr.sec', '1') === '1';
-  let hover = '', drag = null;
+  let hover = '', drag = null, rz = null;
+  const nv = new THREE.Vector3(), pt = new THREE.Vector3(), pl = new THREE.Plane();
+  function planePt(c) {                // punto donde el rayo corta el plano del reloj
+    aim(c); raycaster.set(ro, rd);
+    group.getWorldDirection(nv); pl.setFromNormalAndCoplanarPoint(nv, group.position);
+    return raycaster.ray.intersectPlane(pl, pt);
+  }
 
   function rr(g, x, y, w, h, r) {
     g.beginPath();
@@ -192,24 +202,27 @@
     g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r);
     g.closePath();
   }
-  function glass(g, w, h) {            // rellena y bordea el trazado actual
-    g.fillStyle = 'rgba(92,86,84,0.52)'; g.fill();
-    const a = g.createLinearGradient(0, 0, w, h);
-    a.addColorStop(0, 'rgba(255,255,255,.26)'); a.addColorStop(.55, 'rgba(255,255,255,.04)'); a.addColorStop(1, 'rgba(255,255,255,.10)');
+  function glass(g, w, h) {            // rellena el trazado actual: gris oscuro translúcido con degradado a negro
+    g.fillStyle = 'rgba(62,60,59,0.64)'; g.fill();
+    const a = g.createLinearGradient(0, 0, w * 0.4, h);
+    a.addColorStop(0, 'rgba(255,255,255,.07)'); a.addColorStop(1, 'rgba(0,0,0,.26)');
     g.fillStyle = a; g.fill();
-    const b = g.createLinearGradient(0, 0, w, h);
-    b.addColorStop(0, 'rgba(255,255,255,.8)'); b.addColorStop(.5, 'rgba(255,255,255,.14)'); b.addColorStop(1, 'rgba(255,255,255,.4)');
-    g.lineWidth = 2.5; g.strokeStyle = b; g.stroke();
   }
   function mk(w, h, cw, ch, x, y, z) {
-    const c = document.createElement('canvas'); c.width = cw; c.height = ch;
+    const c = document.createElement('canvas'); c.width = cw * S; c.height = ch * S;
     const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; t.anisotropy = 8;
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false }));
     m.position.set(x, y, z); group.add(m);
-    return { g: c.getContext('2d'), t, m };
+    const g = c.getContext('2d'); g.scale(S, S);
+    return { g, t, m };
   }
   const orn = mk(0.08, 0.2, 160, 400, -0.44, 0, 0.012);
-  const grab = mk(0.448, 0.056, 512, 64, 0, -0.222, 0.004);
+  const grab = mk(0.448, 0.056, 512, 64, 0, -0.262, 0.004);
+  const corners = [[-1, 1], [1, 1], [-1, -1], [1, -1]].map(([sx, sy], i) => {
+    const m = new THREE.Mesh(new THREE.RingGeometry(0.013, 0.02, 32),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false }));
+    m.position.set(sx * 0.387, sy * 0.187, 0.006); m.userData.id = 'c' + i; group.add(m); return m;
+  });
 
   function drawOrn() {
     const g = orn.g; g.clearRect(0, 0, 160, 400);
@@ -254,11 +267,12 @@
   }
   function pick(c) {
     aim(c); raycaster.set(ro, rd);
-    const h = raycaster.intersectObjects([grab.m, orn.m, panel])[0];
+    const h = raycaster.intersectObjects([grab.m, orn.m, panel, ...corners])[0];
     if (!h) return null;
     let id = 'panel';
     if (h.object === orn.m) { const y = (1 - h.uv.y) * 400; id = 'o' + (y < 144 ? 0 : y < 256 ? 1 : 2); }
     else if (h.object === grab.m) id = h.uv.x < 0.16 ? 'dot' : 'grab';
+    else if (h.object.userData.id) id = h.object.userData.id;
     return { id, point: h.point };
   }
 
@@ -279,9 +293,10 @@
       else if (h.id === 'o1') { showSec = !showSec; store.set('clockxr.sec', showSec ? '1' : '0'); refresh(); }
       else if (h.id === 'o2') { placed = false; frames = 999; }
       else if (h.id === 'dot') { if (session) session.end(); }
+      else if (h.id[0] === 'c') { if (planePt(c)) rz = { c, i: +h.id[1], d0: pt.distanceTo(group.position), s0: group.scale.x }; }
       else if (h.id === 'grab') drag = { c, dist: h.point.distanceTo(ro), off: group.position.clone().sub(h.point) };
     });
-    c.addEventListener('selectend', () => { if (drag && drag.c === c) drag = null; });
+    c.addEventListener('selectend', () => { if (drag && drag.c === c) drag = null; if (rz && rz.c === c) rz = null; });
     scene.add(c);
   });
 
@@ -302,9 +317,20 @@
       group.lookAt(v.x, group.position.y, v.z);
       hv = 'grab';
     }
-    if (hv !== hover) { hover = hv; drawOrn(); drawGrab(); }
+    if (rz && planePt(rz.c)) {
+      group.scale.setScalar(THREE.MathUtils.clamp(rz.s0 * pt.distanceTo(group.position) / rz.d0, 0.5, 3));
+      hv = 'c' + rz.i;
+    }
+    if (hv !== hover) {
+      hover = hv; drawOrn(); drawGrab();
+      corners.forEach((m, i) => { m.material.opacity = hv === 'c' + i ? 0.75 : 0; });
+    }
   }
   drawOrn(); drawGrab(); bar.visible = showSec;
+  if (document.fonts && document.fonts.load) {
+    Promise.all(['200 100px Inter', '300 100px Inter', '400 40px Inter', '500 40px Inter'].map(f => document.fonts.load(f)))
+      .then(() => { lastSecond = -1; drawOrn(); drawGrab(); }).catch(() => {});
+  }
 
   // Vista previa en pantalla: clic sobre el panel
   renderer.domElement.addEventListener('pointerdown', e => {
