@@ -1,260 +1,313 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ToonCloud+ TV</title>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;800&display=swap');
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reloj · Liquid Glass XR</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", system-ui, sans-serif;
+    background:
+      radial-gradient(60vmax 60vmax at 15% 10%, #3b6bff 0%, transparent 60%),
+      radial-gradient(55vmax 55vmax at 90% 95%, #ff5fa2 0%, transparent 60%),
+      #0b1020;
+    color: #fff;
+  }
+  canvas { display: block; position: fixed; inset: 0; }
 
-        :root {
-            --bg-color: #0f1014;
-            --glass-bg: rgba(255, 255, 255, 0.08);
-            --glass-border: rgba(255, 255, 255, 0.1);
-            --accent: #00c3ff;
-            --text-main: #ffffff;
-            --text-sec: #a1a1a1;
-        }
-
-        body {
-            margin: 0; background-color: var(--bg-color); color: var(--text-main);
-            font-family: 'Poppins', sans-serif; overflow-x: hidden;
-        }
-
-        /* --- NAVBAR --- */
-        nav {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 20px 40px; position: absolute; top: 0; width: 100%; z-index: 10; box-sizing: border-box;
-        }
-        .logo-container img { height: 45px; filter: drop-shadow(0 0 8px rgba(0, 195, 255, 0.4)); cursor: pointer; }
-
-        /* --- HERO --- */
-        .hero {
-            height: 75vh; position: relative; display: flex; align-items: center; padding: 0 60px;
-            background-size: cover; background-position: center top; transition: 0.5s;
-        }
-        .hero::after {
-            content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: linear-gradient(90deg, #0f1014 10%, transparent 60%, #0f1014 100%),
-                        linear-gradient(0deg, #0f1014 5%, transparent 50%);
-        }
-        .hero-content { position: relative; z-index: 2; max-width: 600px; }
-        .hero-title { font-size: 50px; font-weight: 800; margin-bottom: 10px; }
-
-        /* --- BRANDS --- */
-        .brands-row {
-            position: relative; z-index: 5; margin-top: -50px; margin-bottom: 30px;
-            padding: 0 60px; display: flex; gap: 15px; overflow-x: auto; scrollbar-width: none;
-        }
-        .brand-item {
-            min-width: 90px; height: 65px; background: rgba(25, 25, 35, 0.8);
-            backdrop-filter: blur(20px); border: 1px solid var(--glass-border);
-            border-radius: 12px; display: flex; justify-content: center; align-items: center;
-            cursor: pointer; transition: 0.3s; padding: 10px;
-        }
-        .brand-item.active { background: white; border-color: var(--accent); }
-        .brand-item img { max-width: 100%; max-height: 100%; filter: brightness(200%); }
-        .brand-item.active img { filter: none; }
-
-        /* --- CAROUSEL --- */
-        .section-container { padding: 0 60px 40px; }
-        .carousel { display: flex; gap: 15px; overflow-x: auto; padding-bottom: 20px; }
-        .card {
-            min-width: 160px; border-radius: 10px; overflow: hidden;
-            cursor: pointer; transition: 0.3s; position: relative;
-        }
-        .card:hover { transform: scale(1.05); }
-        .card img { width: 100%; height: 240px; object-fit: cover; }
-        .card-title {
-            position: absolute; bottom: 0; width: 100%; padding: 10px;
-            background: linear-gradient(transparent, black); font-size: 12px; text-align: center;
-        }
-
-        /* --- INTERFAZ DE CAPÍTULOS (NUEVA) --- */
-        #details-screen {
-            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: #0f1014; z-index: 100; overflow-y: auto; padding: 40px 60px; box-sizing: border-box;
-        }
-        .details-header { display: flex; gap: 40px; margin-bottom: 40px; align-items: flex-start; }
-        .details-poster { width: 250px; border-radius: 15px; box-shadow: 0 0 30px rgba(0,0,0,0.5); }
-        .details-info { flex: 1; }
-        .close-details { font-size: 30px; cursor: pointer; float: right; }
-
-        .season-selector {
-            margin-bottom: 20px; background: #1a1a1a; color: white;
-            padding: 10px; border-radius: 8px; border: 1px solid #333;
-        }
-
-        .episodes-grid {
-            display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px;
-        }
-        .episode-card {
-            background: #1a1a1a; border-radius: 12px; overflow: hidden;
-            cursor: pointer; transition: 0.3s; border: 1px solid #333;
-        }
-        .episode-card:hover { border-color: var(--accent); background: #252525; }
-        .episode-img { width: 100%; height: 150px; object-fit: cover; }
-        .episode-body { padding: 15px; }
-        .ep-number { color: var(--accent); font-size: 12px; font-weight: bold; }
-        .ep-name { font-size: 14px; font-weight: 600; margin-top: 5px; }
-
-        /* --- PLAYER --- */
-        #player-overlay {
-            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.98); z-index: 200; justify-content: center; align-items: center;
-        }
-        .player-container { width: 90%; max-width: 1000px; }
-        .iframe-box { position: relative; padding-bottom: 56.25%; height: 0; }
-        .iframe-box iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }
-    </style>
+  .ui {
+    position: fixed; left: 50%; bottom: max(24px, env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+    width: min(92vw, 420px); text-align: center;
+  }
+  button {
+    font: inherit; font-size: 1.05rem; font-weight: 500; color: #fff;
+    padding: 14px 28px; border-radius: 999px; cursor: pointer;
+    background: linear-gradient(140deg, rgba(255,255,255,.28), rgba(255,255,255,.08));
+    border: 1px solid rgba(255,255,255,.2);
+    box-shadow: inset 0 1.5px 1px rgba(255,255,255,.6), 0 12px 30px -10px rgba(0,0,0,.5);
+    -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
+  }
+  button:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+  button[hidden] { display: none; }
+  #msg { font-size: .95rem; color: rgba(255,255,255,.7); line-height: 1.4; }
+</style>
 </head>
 <body>
 
-    <nav>
-        <div class="logo-container"><img src="https://i.imgur.com/XAHG8BW.png" onclick="location.reload()"></div>
-    </nav>
+<div class="ui">
+  <button id="enter" type="button" hidden>Entrar en AR</button>
+  <p id="msg">Comprobando compatibilidad con AR…</p>
+</div>
 
-    <div id="hero" class="hero">
-        <div class="hero-content">
-            <h1 id="hero-title" class="hero-title">ToonCloud+</h1>
-            <p id="hero-desc">Cargando...</p>
-        </div>
-    </div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+  const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", Roboto, "Segoe UI", sans-serif';
+  const W = 1024, H = 512;          // píxeles del lienzo
+  const PW = 0.8, PH = 0.4;         // tamaño del panel en metros
+  const K = PW / W;                 // metros por píxel
 
-    <div class="brands-row">
-        <div class="brand-item active" onclick="resetFilter(this)"><span>ALL</span></div>
-        <div class="brand-item" onclick="filterByNetwork('Cartoon Network', this)"><img src="https://upload.wikimedia.org/wikipedia/commons/thumb/8/80/Cartoon_Network_2010_logo.svg/330px-Cartoon_Network_2010_logo.svg.png"></div>
-        <div class="brand-item" onclick="filterByNetwork('Nickelodeon', this)"><img src="https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEj33DnGGI7520Upxw725goYhYMR58tKCCuZT47pAZVL2PsKmpiY_HINpmXJoWxQUVavN9EibiI9PTOKwB8j2dMd5ElvGRbekSCApDQOTYes66MQSNGeAdOCMMPsGFDzHeBhXedA1MtQrqb_44Ty_C4loHIdUH4WgppV2ARk0PQ3POo7W2Y35a5y/s370/nicknewlogo.png"></div>
-        <div class="brand-item" onclick="filterByNetwork('Disney', this)"><img src="https://purodiseno.lat/wp-content/uploads/2023/12/LOGO-DISNEY-5-1024x764.png"></div>
-        <div class="brand-item" onclick="filterByNetwork('Discovery', this)"><img src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c9/Discovery_Kids_2021_2D_Gradient.svg/500px-Discovery_Kids_2021_2D_Gradient.svg.png"></div>
-    </div>
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  };
+  let h24 = store.get('clockxr.h24', '1') === '1';
 
-    <div class="section-container">
-        <h2 style="font-size: 18px; margin-bottom: 15px;">Series Sugeridas</h2>
-        <div id="carousel" class="carousel"></div>
-    </div>
+  const enterBtn = document.getElementById('enter');
+  const msg = document.getElementById('msg');
 
-    <div id="details-screen">
-        <span class="close-details" onclick="closeDetails()">✕</span>
-        <div class="details-header">
-            <img id="det-poster" class="details-poster" src="">
-            <div class="details-info">
-                <h1 id="det-title">Título</h1>
-                <p id="det-desc" style="color: #ccc; line-height: 1.6;"></p>
-                <select id="season-select" class="season-selector" onchange="loadEpisodes()"></select>
-            </div>
-        </div>
-        <h2 style="border-left: 4px solid var(--accent); padding-left: 15px;">Episodios</h2>
-        <div id="episodes-list" class="episodes-grid"></div>
-    </div>
+  /* ---------- Escena ---------- */
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.setClearAlpha(0);              // transparente: así se ve el passthrough
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.xr.enabled = true;
+  document.body.appendChild(renderer.domElement);
 
-    <div id="player-overlay">
-        <div style="position: absolute; top: 20px; right: 30px; font-size: 30px; cursor: pointer;" onclick="closePlayer()">✕</div>
-        <div class="player-container">
-            <div class="iframe-box"><iframe id="main-iframe" src="" allowfullscreen></iframe></div>
-        </div>
-    </div>
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.01, 20);
+  camera.position.set(0, 1.6, 0);
 
-    <script>
-        const TOKEN = 'eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJhMzZiYmZlMmNiNzdjOWIyNzliOWVkNDc4OWY5NjcxYSIsIm5iZiI6MTc3MDE4OTU4MS4yMTYsInN1YiI6IjY5ODJmMzBkMjM1MmM2MzEzNTM4MzdjNiIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.IEXOBTsDACDo_m6DUt_hqfRvtosp1hLmvv93jNALnKU';
-        const IDS = [40075, 387, 4686, 2085, 557, 47035, 6673, 50035, 7736, 1878, 35094, 46759, 18123, 926, 652, 64228, 418, 1068, 8379, 552, 18351, 34891, 2304, 3934, 31499, 234, 2309, 79, 1647, 618, 4627, 17572, 607, 28624, 1769, 346, 17463, 656, 288, 1877, 4630, 33835, 604, 2355, 733, 274382, 897, 4229, 2405, 55924, 47480, 676, 127445, 14705, 9907, 30778, 21086, 94075, 12225, 76004, 32605, 65763, 670, 537, 7821, 3022, 232869, 296764, 126824, 68073, 64228, 12454, 17194, 3022, 504, 384, 588, 657, 2745, 10821, 3579, 1567, 2009, 4630, 2129, 178, 1643, 1848, 1960, 246, 3809, 1346, 3031, 10219, 6046, 3527, 9921, 3854, 15641, 7330, 18352, 5559, 18828, 18848, 33623, 39107, 46358, 46262, 46928, 61520, 46879, 55924, 57532, 60306, 57748, 61330, 61923, 84587, 177, 3611, 606, 4350, 2723, 2660, 4246, 1720, 255, 446, 6618, 10548, 7048, 6040, 15260, 32118, 31109, 33428, 31132, ];
+  /* ---------- Textura de cristal dibujada en canvas ---------- */
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.encoding = THREE.sRGBEncoding;
+  texture.anisotropy = 8;
 
-        let db = [];
-        let selectedShow = null;
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
 
-        async function init() {
-            const shuffledIds = [...IDS].sort(() => 0.5 - Math.random());
-            const fetchs = shuffledIds.map(id => 
-                fetch(`https://api.themoviedb.org/3/tv/${id}?language=es-MX`, {
-                    headers: { Authorization: `Bearer ${TOKEN}` }
-                }).then(r => r.json())
-            );
-            db = await Promise.all(fetchs);
-            setHero(db[0]);
-            renderCarousel(db);
-        }
+  const dateFmt = new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
 
-        function renderCarousel(list) {
-            document.getElementById('carousel').innerHTML = list.map(s => `
-                <div class="card" onclick="openDetails(${s.id})">
-                    <img src="https://image.tmdb.org/t/p/w342${s.poster_path}">
-                    <div class="card-title">${s.name}</div>
-                </div>
-            `).join('');
-        }
+  function draw(now) {
+    ctx.clearRect(0, 0, W, H);
 
-        function setHero(s) {
-            document.getElementById('hero').style.backgroundImage = `url(https://image.tmdb.org/t/p/original${s.backdrop_path})`;
-            document.getElementById('hero-title').innerText = s.name;
-            document.getElementById('hero-desc').innerText = s.overview ? s.overview.substring(0, 150) + "..." : "";
-        }
+    // Base tintada (da contraste con el mundo real) + vidrio
+    roundRect(8, 8, W - 16, H - 16, 96);
+    ctx.fillStyle = 'rgba(14, 20, 44, 0.42)';
+    ctx.fill();
+    const g = ctx.createLinearGradient(0, 0, W, H);
+    g.addColorStop(0, 'rgba(255,255,255,0.30)');
+    g.addColorStop(0.5, 'rgba(255,255,255,0.07)');
+    g.addColorStop(1, 'rgba(255,255,255,0.14)');
+    ctx.fillStyle = g;
+    ctx.fill();
 
-        // --- LÓGICA DE CAPÍTULOS ---
-        async function openDetails(id) {
-            selectedShow = db.find(s => s.id == id);
-            document.getElementById('det-title').innerText = selectedShow.name;
-            document.getElementById('det-desc').innerText = selectedShow.overview;
-            document.getElementById('det-poster').src = `https://image.tmdb.org/t/p/w500${selectedShow.poster_path}`;
-            
-            // Llenar selector de temporadas
-            const select = document.getElementById('season-select');
-            select.innerHTML = selectedShow.seasons
-                .filter(se => se.season_number > 0)
-                .map(se => `<option value="${se.season_number}">Temporada ${se.season_number}</option>`).join('');
+    // Borde con luz: brillante arriba a la izquierda, tenue abajo
+    const b = ctx.createLinearGradient(0, 0, W, H);
+    b.addColorStop(0, 'rgba(255,255,255,0.85)');
+    b.addColorStop(0.45, 'rgba(255,255,255,0.12)');
+    b.addColorStop(1, 'rgba(255,255,255,0.40)');
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = b;
+    ctx.stroke();
 
-            document.getElementById('details-screen').style.display = 'block';
-            document.body.style.overflow = 'hidden';
-            loadEpisodes();
-        }
+    // Hora
+    let hh = now.getHours(), suffix = '';
+    if (!h24) { suffix = hh >= 12 ? 'PM' : 'AM'; hh = hh % 12 || 12; }
+    const text = (h24 ? String(hh).padStart(2, '0') : String(hh)) + ':' + String(now.getMinutes()).padStart(2, '0');
+    const sec = String(now.getSeconds()).padStart(2, '0');
 
-        async function loadEpisodes() {
-            const seasonNum = document.getElementById('season-select').value;
-            const res = await fetch(`https://api.themoviedb.org/3/tv/${selectedShow.id}/season/${seasonNum}?language=es-MX`, {
-                headers: { Authorization: `Bearer ${TOKEN}` }
-            });
-            const data = await res.json();
-            
-            document.getElementById('episodes-list').innerHTML = data.episodes.map(ep => `
-                <div class="episode-card" onclick="playEpisode(${seasonNum}, ${ep.episode_number})">
-                    <img class="episode-img" src="${ep.still_path ? 'https://image.tmdb.org/t/p/w300'+ep.still_path : 'https://via.placeholder.com/300x150?text=No+Preview'}">
-                    <div class="episode-body">
-                        <div class="ep-number">Capítulo ${ep.episode_number}</div>
-                        <div class="ep-name">${ep.name}</div>
-                    </div>
-                </div>
-            `).join('');
-        }
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
+    ctx.font = `200 250px ${FONT}`;
+    const w0 = ctx.measureText('0').width;       // ancho fijo por dígito
+    const slot = c => (c === ':' ? w0 * 0.42 : w0);
+    const timeW = [...text].reduce((a, c) => a + slot(c), 0);
 
-        function playEpisode(s, e) {
-            const url = `https://vidsrc-embed.ru/embed/tv?tmdb=${selectedShow.id}&season=${s}&episode=${e}&ds_lang=es`;
-            document.getElementById('main-iframe').src = url;
-            document.getElementById('player-overlay').style.display = 'flex';
-        }
+    ctx.font = `300 96px ${FONT}`;
+    const secW = ctx.measureText('00').width;
+    const gap = 28;
+    let x = (W - (timeW + gap + secW)) / 2;
+    const base = 300;
 
-        function closeDetails() {
-            document.getElementById('details-screen').style.display = 'none';
-            document.body.style.overflow = 'auto';
-        }
+    ctx.fillStyle = 'rgba(255,255,255,0.97)';
+    ctx.shadowColor = 'rgba(255,255,255,0.35)';
+    ctx.shadowBlur = 24;
+    ctx.font = `200 250px ${FONT}`;
+    ctx.textAlign = 'center';
+    for (const c of text) {
+      ctx.fillText(c, x + slot(c) / 2, base);
+      x += slot(c);
+    }
+    ctx.shadowBlur = 0;
 
-        function closePlayer() {
-            document.getElementById('player-overlay').style.display = 'none';
-            document.getElementById('main-iframe').src = "";
-        }
+    // Segundos y AM/PM
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(255,255,255,0.62)';
+    ctx.font = `300 96px ${FONT}`;
+    ctx.fillText(sec, x + gap, base);
+    if (!h24) {
+      ctx.font = `500 44px ${FONT}`;
+      ctx.fillText(suffix, x + gap, base - 150);
+    }
 
-        function filterByNetwork(name, el) {
-            document.querySelectorAll('.brand-item').forEach(b => b.classList.remove('active'));
-            el.classList.add('active');
-            const filtered = db.filter(s => s.networks.some(n => n.name.toLowerCase().includes(name.toLowerCase())));
-            renderCarousel(filtered);
-        }
+    // Fecha
+    let d = dateFmt.format(now);
+    d = d.charAt(0).toUpperCase() + d.slice(1);
+    ctx.textAlign = 'center';
+    ctx.font = `400 44px ${FONT}`;
+    ctx.fillStyle = 'rgba(255,255,255,0.66)';
+    ctx.fillText(d, W / 2, 390);
 
-        function resetFilter(el) {
-            document.querySelectorAll('.brand-item').forEach(b => b.classList.remove('active'));
-            el.classList.add('active');
-            renderCarousel(db);
-        }
+    // Pista de la barra de segundos
+    roundRect(96, 447, W - 192, 6, 3);
+    ctx.fillStyle = 'rgba(255,255,255,0.16)';
+    ctx.fill();
 
-        init();
-    </script>
+    texture.needsUpdate = true;
+  }
+
+  /* ---------- Panel ---------- */
+  const group = new THREE.Group();
+  const HOME = new THREE.Vector3(0, 1.6, -1.2);
+  group.position.copy(HOME);
+  scene.add(group);
+
+  const panel = new THREE.Mesh(
+    new THREE.PlaneGeometry(PW, PH),
+    new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false })
+  );
+  group.add(panel);
+
+  // Barra de segundos: malla aparte para que avance suave sin redibujar el lienzo
+  const barW = (W - 192) * K;
+  const barGeo = new THREE.PlaneGeometry(barW, 6 * K);
+  barGeo.translate(barW / 2, 0, 0);
+  const bar = new THREE.Mesh(
+    barGeo,
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.92, depthWrite: false })
+  );
+  bar.position.set((96 - W / 2) * K, (H / 2 - 450) * K, 0.002);
+  group.add(bar);
+
+  /* ---------- Interacción ---------- */
+  const raycaster = new THREE.Raycaster();
+  const tmp = new THREE.Matrix4();
+
+  function toggleFormat() {
+    h24 = !h24;
+    store.set('clockxr.h24', h24 ? '1' : '0');
+    lastSecond = -1;
+  }
+
+  function pointsAtPanel(controller) {
+    tmp.identity().extractRotation(controller.matrixWorld);
+    raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+    raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tmp);
+    return raycaster.intersectObject(panel).length > 0;
+  }
+
+  for (let i = 0; i < 2; i++) {
+    const c = renderer.xr.getController(i);
+    const ray = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1.5)]),
+      new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45 })
+    );
+    c.add(ray);
+    c.addEventListener('selectstart', () => { if (pointsAtPanel(c)) toggleFormat(); });
+    c.addEventListener('squeezestart', () => { if (pointsAtPanel(c)) c.attach(group); });
+    c.addEventListener('squeezeend', () => { if (group.parent === c) scene.attach(group); });
+    scene.add(c);
+  }
+
+  // Vista previa en pantalla: clic sobre el panel
+  renderer.domElement.addEventListener('pointerdown', e => {
+    if (renderer.xr.isPresenting) return;
+    const m = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+    raycaster.setFromCamera(m, camera);
+    if (raycaster.intersectObject(panel).length) toggleFormat();
+  });
+
+  /* ---------- Sesión AR ---------- */
+  let session = null, placed = true, frames = 0;
+  const v = new THREE.Vector3(), dir = new THREE.Vector3();
+
+  function placeInFront() {
+    const xrCam = renderer.xr.getCamera(camera);
+    xrCam.getWorldPosition(v);
+    if (v.y < 0.2 && frames < 90) return;   // espera a que el seguimiento tenga la altura real
+    xrCam.getWorldDirection(dir);
+    dir.y = 0;
+    if (dir.lengthSq() < 1e-4) dir.set(0, 0, -1);
+    dir.normalize();
+    scene.attach(group);
+    group.position.set(v.x + dir.x * 1.2, v.y - 0.05, v.z + dir.z * 1.2);
+    group.lookAt(v.x, group.position.y, v.z);
+    placed = true;
+  }
+
+  function resetDesktop() {
+    scene.attach(group);
+    group.position.copy(HOME);
+    group.rotation.set(0, 0, 0);
+  }
+
+  async function startAR() {
+    if (session) { session.end(); return; }
+    try {
+      const s = await navigator.xr.requestSession('immersive-ar', { optionalFeatures: ['local-floor'] });
+      renderer.xr.setReferenceSpaceType('local-floor');
+      await renderer.xr.setSession(s);
+      session = s;
+      placed = false; frames = 0;
+      enterBtn.textContent = 'Salir de AR';
+      s.addEventListener('end', () => {
+        session = null;
+        enterBtn.textContent = 'Entrar en AR';
+        resetDesktop();
+      });
+    } catch (err) {
+      msg.textContent = 'No se pudo iniciar la AR: ' + (err && err.message ? err.message : 'error desconocido');
+    }
+  }
+
+  if (navigator.xr && navigator.xr.isSessionSupported) {
+    navigator.xr.isSessionSupported('immersive-ar').then(ok => {
+      if (ok) {
+        enterBtn.hidden = false;
+        msg.textContent = 'Gatillo para cambiar 12/24 h. Agarre (lateral) para mover el reloj.';
+      } else {
+        msg.textContent = 'Este navegador no admite AR inmersiva. Ábrelo desde el navegador del Quest (por HTTPS).';
+      }
+    }).catch(() => { msg.textContent = 'No se pudo comprobar la compatibilidad con AR.'; });
+  } else {
+    msg.textContent = 'Este navegador no tiene WebXR. Ábrelo desde el navegador del Quest (por HTTPS).';
+  }
+  enterBtn.addEventListener('click', startAR);
+
+  /* ---------- Bucle ---------- */
+  let lastSecond = -1;
+  renderer.setAnimationLoop(() => {
+    const now = new Date();
+    const s = now.getSeconds();
+    if (s !== lastSecond) { lastSecond = s; draw(now); }
+    bar.scale.x = Math.max(0.001, (s * 1000 + now.getMilliseconds()) / 60000);
+
+    if (renderer.xr.isPresenting && !placed) { frames++; placeInFront(); }
+    renderer.render(scene, camera);
+  });
+
+  addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+})();
+</script>
 </body>
 </html>
